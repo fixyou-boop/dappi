@@ -1,11 +1,14 @@
--- UNIVERSAL FISHING EXPLOIT SUITE v2.0
+-- UNIVERSAL FISHING EXPLOIT SUITE v2.0 - FIXED VERSION
 -- Combined Features: Auto Fishing + GUI + Multi-Location Farm
 
-local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/fixyou-boop/Creator/refs/heads/main/dappi/main/source')))()
+-- GUNAKAN ORION LIBRARY YANG ASLI
+local OrionLib = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Orion/main/source'))()
+
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RS = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
 -- MAIN WINDOW
 local Window = OrionLib:MakeWindow({
@@ -22,7 +25,7 @@ local Window = OrionLib:MakeWindow({
 -- NOTIFICATION
 OrionLib:MakeNotification({
     Name = "System Loaded!",
-    Content = "Universal Fishing Suite Activated",
+    Content = "dappi Fishing Suite Activated",
     Image = "rbxassetid://4483345998",
     Time = 5
 })
@@ -36,9 +39,9 @@ local PlayerTab = Window:MakeTab({Name = "Player", Icon = "rbxassetid://44833459
 -- SHARED CONFIGURATION
 getgenv().FishingConfig = {
     -- Auto Fishing Settings
-    autoCast = true,
-    autoReel = true,
-    autoCatch = true,
+    autoCast = false,
+    autoReel = false,
+    autoCatch = false,
     loopSpeed = 0.25,
     speedMultiplier = 1.0,
     superFast = 0,
@@ -65,6 +68,17 @@ local startTick = 0
 local biteTick = nil
 local platform = nil
 
+-- FIX: TAMBAHKAN FUNGSI MOUSECLICK YANG HILANG
+local function mouse1click()
+    -- Simulate mouse click for fishing
+    if reelRemote and isFishing then
+        local elapsed = tick() - startTick
+        pcall(function()
+            reelRemote:FireServer(elapsed)
+        end)
+    end
+end
+
 -- SECTION: AUTO FISHING REMOTE DETECTION
 local FishingSection = FishingTab:AddSection({Name = "Fishing Automation"})
 
@@ -75,22 +89,20 @@ spawn(function()
             local n = v.Name:lower()
             if not castRemote and (n:find("start") or n:find("cast") or n:find("fish")) then
                 castRemote = v
+                print("[FOUND] Cast Remote:", v:GetFullName())
             end
             if not reelRemote and (n:find("reel") or n:find("pull") or n:find("drag")) then
                 reelRemote = v
-            end
-            if not StartRemote and n:find("start") then
-                StartRemote = v
-            end
-            if not ReelRemote and n:find("reel") then
-                ReelRemote = v
-            end
-            if not NotifyRemote and n:find("notify") then
-                NotifyRemote = v
+                print("[FOUND] Reel Remote:", v:GetFullName())
             end
         end
     end
-    print("[FISHING] Remotes detection completed")
+    if not castRemote then
+        warn("[ERROR] Cast Remote not found!")
+    end
+    if not reelRemote then
+        warn("[ERROR] Reel Remote not found!")
+    end
 end)
 
 -- AUTO FISHING CONTROLS
@@ -99,14 +111,24 @@ FishingSection:AddToggle({
     Default = false,
     Callback = function(state)
         getgenv().FishingConfig.autoCast = state
+        OrionLib:MakeNotification({
+            Name = "Auto Cast",
+            Content = state and "Enabled" or "Disabled",
+            Time = 2
+        })
     end
 })
 
 FishingSection:AddToggle({
-    Name = "Auto Reel",
+    Name = "Auto Reel", 
     Default = false,
     Callback = function(state)
         getgenv().FishingConfig.autoReel = state
+        OrionLib:MakeNotification({
+            Name = "Auto Reel",
+            Content = state and "Enabled" or "Disabled", 
+            Time = 2
+        })
     end
 })
 
@@ -115,6 +137,11 @@ FishingSection:AddToggle({
     Default = false,
     Callback = function(state)
         getgenv().FishingConfig.autoPerfection = state
+        OrionLib:MakeNotification({
+            Name = "Perfect Catch",
+            Content = state and "Enabled" or "Disabled",
+            Time = 2
+        })
     end
 })
 
@@ -126,20 +153,35 @@ FishingSection:AddSlider({
     Increment = 0.1,
     Callback = function(value)
         getgenv().FishingConfig.speedMultiplier = value
+        OrionLib:MakeNotification({
+            Name = "Fishing Speed",
+            Content = "Set to " .. value .. "x",
+            Time = 2
+        })
     end
 })
 
--- MAIN FISHING LOOP (from first script)
+-- MAIN FISHING LOOP (FIXED)
 spawn(function()
-    while wait(getgenv().FishingConfig.loopSpeed) do
+    while task.wait(getgenv().FishingConfig.loopSpeed) do
         if not getgenv().FishingConfig.autoCast then continue end
+        if isFishing then continue end
         
         -- AUTO CAST LOGIC
-        if castRemote and not isFishing then
+        if castRemote then
             pcall(function()
                 isFishing = true
                 startTick = tick()
                 castRemote:FireServer()
+                print("[FISHING] Casting line...")
+                
+                -- Auto reel after delay if enabled
+                if getgenv().FishingConfig.autoReel then
+                    task.wait(3) -- Wait for bite
+                    if isFishing then
+                        mouse1click()
+                    end
+                end
             end)
         end
     end
@@ -159,29 +201,37 @@ for name, cf in pairs(farmLocations) do
         Name = "Farm at " .. name,
         Default = false,
         Callback = function(state)
-            if name == "Kohana Island" then
-                getgenv().FishingConfig.autoFarmEnabled = state
-            elseif name == "Coral Reefs" then
-                getgenv().FishingConfig.coralFarmEnabled = state
-            elseif name == "The Depths" then
-                getgenv().FishingConfig.depthsFarmEnabled = state
-            end
+            local configName = name:gsub(" ", "") .. "Enabled"
+            getgenv().FishingConfig[configName] = state
+            
+            OrionLib:MakeNotification({
+                Name = "Farm " .. name,
+                Content = state and "Started" or "Stopped",
+                Time = 3
+            })
             
             if state then
                 -- Create platform
+                if platform then platform:Destroy() end
                 platform = Instance.new("Part")
-                platform.Size = Vector3.new(5, 1, 5)
+                platform.Name = "FarmingPlatform"
+                platform.Size = Vector3.new(10, 1, 10)
                 platform.Anchored = true
-                platform.Material = Enum.Material.Plastic
+                platform.Material = Enum.Material.Neon
+                platform.BrickColor = BrickColor.new("Bright blue")
+                platform.Transparency = 0.7
+                platform.CanCollide = true
                 platform.Parent = workspace
                 
                 -- Start farming loop
                 spawn(function()
-                    while getgenv().FishingConfig[name:gsub(" ", "") .. "Enabled"] do
-                        LocalPlayer.Character.HumanoidRootPart.CFrame = cf
-                        platform.Position = LocalPlayer.Character.HumanoidRootPart.Position - Vector3.new(0, 3, 0)
-                        mouse1click()
-                        wait(0.5)
+                    while getgenv().FishingConfig[configName] do
+                        pcall(function()
+                            LocalPlayer.Character.HumanoidRootPart.CFrame = cf
+                            platform.CFrame = cf - Vector3.new(0, 4, 0)
+                            task.wait(1)
+                        end)
+                        task.wait(0.5)
                     end
                     -- Cleanup
                     if platform then
@@ -216,12 +266,14 @@ for name, cf in pairs(locations) do
     TeleportSection:AddButton({
         Name = "TP to " .. name,
         Callback = function()
-            LocalPlayer.Character.HumanoidRootPart.CFrame = cf
-            OrionLib:MakeNotification({
-                Name = "Teleported",
-                Content = "Arrived at " .. name,
-                Time = 2
-            })
+            pcall(function()
+                LocalPlayer.Character.HumanoidRootPart.CFrame = cf
+                OrionLib:MakeNotification({
+                    Name = "Teleported",
+                    Content = "Arrived at " .. name,
+                    Time = 2
+                })
+            end)
         end
     })
 end
@@ -237,7 +289,14 @@ PlayerSection:AddSlider({
     Increment = 1,
     Callback = function(value)
         getgenv().FishingConfig.walkSpeed = value
-        LocalPlayer.Character.Humanoid.WalkSpeed = value
+        pcall(function()
+            LocalPlayer.Character.Humanoid.WalkSpeed = value
+        end)
+        OrionLib:MakeNotification({
+            Name = "Walk Speed",
+            Content = "Set to " .. value,
+            Time = 2
+        })
     end
 })
 
@@ -246,14 +305,22 @@ PlayerSection:AddToggle({
     Default = false,
     Callback = function(state)
         getgenv().FishingConfig.autoCollect = state
+        OrionLib:MakeNotification({
+            Name = "Auto Collect",
+            Content = state and "Enabled" or "Disabled",
+            Time = 2
+        })
+        
         spawn(function()
             while getgenv().FishingConfig.autoCollect do
-                for _, v in pairs(workspace:GetChildren()) do
-                    if v:IsA("Tool") and v:FindFirstChild("Handle") then
-                        v.Handle.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame
+                pcall(function()
+                    for _, v in pairs(workspace:GetChildren()) do
+                        if v:IsA("Tool") and v:FindFirstChild("Handle") then
+                            v.Handle.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame
+                        end
                     end
-                end
-                wait(0.1)
+                end)
+                task.wait(0.5)
             end
         end)
     end
@@ -289,7 +356,7 @@ end)
 PlayerSection:AddButton({
     Name = "Load Infinite Dappi",
     Callback = function()
-        loadstring(game:HttpGet('https://raw.githubusercontent.com/fixyou-boop/Creator/refs/heads/main/dappi/main/loader'))()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source'))()
         OrionLib:MakeNotification({
             Name = "Loaded",
             Content = "Infinite Yield activated",
@@ -298,4 +365,4 @@ PlayerSection:AddButton({
     end
 })
 
-print("dappi v2.0 - Fully Integrated System Loaded")
+print("dappi v2.0 - Fixed System Loaded Successfully!")
